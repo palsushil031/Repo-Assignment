@@ -1,0 +1,83 @@
+//...(a)-CI_Pipeline...(b)-CD_Pipeline
+
+pipeline {
+    agent any
+     tools {
+        jdk 'jdk17'
+        maven 'maven3'
+    }
+
+environment {
+    SCANNER_HOME = tool 'sonar-scanner'
+}
+
+    stages {
+        stage('Git CheckOut') {
+            steps {
+                checkout changelog: false, poll: false, scm: scmGit(branches: [[name: '*/master']], extensions: [], userRemoteConfigs: [[url: 'https://github.com/palsushil031/Assignment-Repo']])
+            }
+        }
+
+        stage('Compile') {
+            steps {
+                sh 'mvn clean compile'
+            }
+        }
+        stage('Test') {
+            steps {
+                script {
+                    sh 'mvn test'
+                }
+            }
+        }
+        stage('SonarQube Analysis') {
+            steps {
+            sh ''' $SCANNER_HOME/bin/sonars-canner -Dsonar.url=http://http://54.91.53.63:9000/ 
+            -Dsonar.login=squ_3f6672e5558242cfc4048cc2fd7f1863e2fe1c06 -Dsonar.ProjectName=Secert-santa\ 
+            -Dsonar.java.binarie=. \  
+            -Dsonar.ProjectKey=secret-santa '''
+            }
+        }
+
+        stage('Build Application') {
+            steps {
+                sh 'mvn clean Install -DskipTests=true'
+            }
+        }
+
+        stage('Build & Push Docker image') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: '406c6465-dc6f-41ba-94af-d6b0016d3fa2') {
+                    sh "docker build -t secret-santa:latest -f docker/Dockerfile ."
+                    sh "docker tag secert-santa:latest palsushil/secret-santa:latest"
+                    sh "docker push palsushil/secret-santa:latest"
+                }
+            }
+        }
+    }
+
+    stage('Trigger CD Pipeline') {
+            steps {
+                build job: "CD_Pipeline", wait: true
+            }
+        }
+}
+
+
+
+// (b) - CD_Pipeline
+
+pipeline {
+    agent any
+
+    stages {
+        stage('Docker Deploy To Container') {
+            steps {
+                script{
+                    withDockerRegistry(credentialsId: '406c6465-dc6f-41ba-94af-d6b0016d3fa2', toolName: 'docker') {
+                        sh "docker run -d --name serect-santa:latest -p 8070:8070 palsushil/secret-santa:latest"
+                    }
+                }
+            }
+        }
